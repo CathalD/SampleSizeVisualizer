@@ -56,11 +56,18 @@ The estimate `x̄ ± z·SE` is computed with each design's variance formula
 the tool also shows the **actual error** `|x̄ − μ_true|` — so you can see when a
 design's confidence interval is well-calibrated and when it is not.
 
-**Prior updating (Bayesian).** The IPCC Tier default is a prior on the mean,
-`μ ~ N(μ₀, σ²/m)`, where the Tier sets the prior strength `m` (equivalent
-plots: Tier 1 ≈ 1, Tier 2 ≈ 4, Tier 3 ≈ 12). The conjugate posterior mean
-`(m·μ₀ + n·x̄)/(m + n)` shifts from the IPCC default toward the sample mean
-(→ the true mean) as plots accumulate, and its credible interval narrows.
+**Prior updating (Bayesian).** The prior on the mean is `μ ~ N(μ₀, σ²/m)`, with
+two sources selectable via the Tier control:
+
+- **Tier 2 · default** — μ₀, σ are the locked IPCC regional defaults for the
+  chosen ecosystem; a moderate-strength prior (`m ≈ 4` equivalent plots).
+- **Tier 3 · measured** — the user enters their own measured mean/SD as the
+  prior; a stronger prior (`m ≈ 12`), since site measurement is more trusted.
+
+The conjugate posterior mean `(m·μ₀ + n·x̄)/(m + n)` shifts from the prior toward
+the sample mean (→ the true mean) as plots accumulate, and its credible interval
+narrows. (Tier 1 in IPCC guidance is the crudest *global* default; this tool
+starts from Tier 2 regional defaults.)
 
 ### Ecosystem defaults
 

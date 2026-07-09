@@ -8,7 +8,7 @@
 import { slider, segmented, select, metricCard } from '../components/controls.js';
 import { createChart, buildLegend } from '../components/chart-panel.js';
 import { COLORS, RAMPS, ERROR_RAMP, rampColor, clamp01 } from '../colors.js';
-import { ECOSYSTEMS, ECOSYSTEM_ORDER, TIERS } from '../data/ecosystems.js';
+import { ECOSYSTEMS, ECOSYSTEM_ORDER, PRIOR_MODES } from '../data/ecosystems.js';
 import { Landscape } from '../simulation/landscape.js';
 import { buildOrder, estimate } from '../simulation/sampler.js';
 import { zFor, cochranN, proportionN, moeAbs, moeProp } from '../simulation/stats.js';
@@ -18,7 +18,7 @@ const ROWS = 48, COLS = 48;
 export function create() {
   const st = {
     ecoKey: 'marsh',
-    tier: 2,
+    priorMode: 'default',  // 'default' (Tier 2 IPCC) | 'measured' (Tier 3, user-entered)
     design: 'stratified',
     paramType: 'mean',     // 'mean' (carbon stock) | 'proportion' (e.g. cover)
     p: 0.5,                // expected proportion (conservative default)
@@ -57,7 +57,7 @@ export function create() {
       }
       return Math.ceil(cochranN({ z: mod.z(), cv: mod.cv(), r: st.r, N }).n);
     },
-    priorEqN() { return TIERS[st.tier].priorEqN; },
+    priorEqN() { return PRIOR_MODES[st.priorMode].priorEqN; },
 
     // ---- lifecycle ----
     regenerate() {
@@ -81,8 +81,13 @@ export function create() {
         label: 'Ecosystem', value: st.ecoKey,
         options: ECOSYSTEM_ORDER.map((k) => ({ value: k, label: ECOSYSTEMS[k].label })),
         onChange: (v) => {
-          st.ecoKey = v; st.mean = ECOSYSTEMS[v].mean; st.sd = ECOSYSTEMS[v].sd;
-          sMean.set(st.mean); sSd.set(st.sd);
+          st.ecoKey = v;
+          // In default (Tier 2) mode the mean/SD track the IPCC defaults; in
+          // measured (Tier 3) mode the user's entered values are kept.
+          if (st.priorMode === 'default') {
+            st.mean = ECOSYSTEMS[v].mean; st.sd = ECOSYSTEMS[v].sd;
+            sMean.set(st.mean); sSd.set(st.sd);
+          }
           mod._ecoNote.textContent = ECOSYSTEMS[v].note;
           rebuild();
         },
@@ -94,10 +99,26 @@ export function create() {
       container.appendChild(mod._ecoNote);
 
       container.appendChild(segmented({
-        label: 'IPCC tier (prior strength)', value: String(st.tier),
-        options: [{ value: '1', label: 'Tier 1' }, { value: '2', label: 'Tier 2' }, { value: '3', label: 'Tier 3' }],
-        onChange: (v) => { st.tier = parseInt(v, 10); mod._refreshConv(); soft(); },
+        label: 'Prior (IPCC tier)', value: st.priorMode,
+        options: [
+          { value: 'default', label: PRIOR_MODES.default.label },
+          { value: 'measured', label: PRIOR_MODES.measured.label },
+        ],
+        onChange: (v) => {
+          st.priorMode = v;
+          mod._applyModeUI();
+          if (v === 'default') {
+            st.mean = ECOSYSTEMS[st.ecoKey].mean; st.sd = ECOSYSTEMS[st.ecoKey].sd;
+            sMean.set(st.mean); sSd.set(st.sd);
+            rebuild();
+          } else {
+            mod._refreshConv(); soft();
+          }
+        },
       }));
+      mod._modeNote = document.createElement('p');
+      mod._modeNote.className = 'hint-text';
+      container.appendChild(mod._modeNote);
 
       container.appendChild(segmented({
         label: 'Sampling design', value: st.design,
@@ -165,6 +186,16 @@ export function create() {
       container.appendChild(sMean.root);
       container.appendChild(sSd.root);
 
+      // Lock mean/SD to the IPCC defaults in Tier 2 mode; unlock for Tier 3.
+      mod._applyModeUI = () => {
+        const measured = st.priorMode === 'measured';
+        sMean.input.disabled = !measured;
+        sSd.input.disabled = !measured;
+        sMean.root.classList.toggle('ctrl-locked', !measured);
+        sSd.root.classList.toggle('ctrl-locked', !measured);
+        if (mod._modeNote) mod._modeNote.textContent = PRIOR_MODES[st.priorMode].note;
+      };
+
       container.appendChild(slider({
         label: 'Plot area', min: 0.01, max: 1, step: 0.01, value: st.plotAreaHa,
         unit: 'ha', format: (v) => `${v.toFixed(2)} (${(v * 10000).toFixed(0)} m²)`,
@@ -181,6 +212,8 @@ export function create() {
         ],
         onChange: (v) => { st.viewMode = v; mod._markDirty(); ctrl.redraw(); },
       }));
+
+      mod._applyModeUI();
     },
 
     // ---- readouts ----

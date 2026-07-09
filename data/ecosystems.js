@@ -72,11 +72,20 @@ export const ECOSYSTEM_ORDER = [
   'marsh', 'seagrass', 'forest', 'mineralWetland', 'peatland', 'grassland',
 ];
 
-// Tier sets the strength of the Bayesian prior on the MEAN, expressed as an
-// equivalent number of pseudo-observations at the default mean. Higher tier =
-// more site-specific prior = tighter prior interval. τ₀ = σ / √priorEqN.
-export const TIERS = {
-  1: { label: 'Tier 1', priorEqN: 1, note: 'Global default — weak, vague prior.' },
-  2: { label: 'Tier 2', priorEqN: 4, note: 'Regional default — moderate prior.' },
-  3: { label: 'Tier 3', priorEqN: 12, note: 'Site-specific — tight prior.' },
+// Two ways to set the Bayesian prior on the MEAN:
+//   'default'  — Tier 2 IPCC regional defaults (mean/SD from the table above,
+//                locked); a moderate-strength prior.
+//   'measured' — Tier 3 site-specific measured data, entered by the user; a
+//                stronger prior (you measured it).
+// Prior strength is an equivalent number of pseudo-observations at the prior
+// mean; τ₀ = σ / √priorEqN.
+export const PRIOR_MODES = {
+  default: {
+    label: 'Tier 2 · default', priorEqN: 4,
+    note: 'IPCC regional default mean/SD (locked).',
+  },
+  measured: {
+    label: 'Tier 3 · measured', priorEqN: 12,
+    note: 'Enter your own measured mean/SD as the prior.',
+  },
 };

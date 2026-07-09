@@ -8,7 +8,7 @@
 import { slider, segmented, select, metricCard } from '../components/controls.js';
 import { createChart, buildLegend } from '../components/chart-panel.js';
 import { COLORS, RAMPS, ERROR_RAMP, rampColor, clamp01 } from '../colors.js';
-import { ECOSYSTEMS, ECOSYSTEM_ORDER, TIERS } from '../data/ecosystems.js';
+import { ECOSYSTEMS, ECOSYSTEM_ORDER, PRIOR_MODES } from '../data/ecosystems.js';
 import { Landscape } from '../simulation/landscape.js';
 import { buildOrder, estimate } from '../simulation/sampler.js';
 import { zFor, cochranN, proportionN, moeAbs, moeProp } from '../simulation/stats.js';
@@ -18,7 +18,7 @@ const ROWS = 48, COLS = 48;
 export function create() {
   const st = {
     ecoKey: 'marsh',
-    tier: 2,
+    priorMode: 'default',  // 'default' (Tier 2 IPCC) | 'measured' (Tier 3, user-entered)
     design: 'stratified',
     paramType: 'mean',     // 'mean' (carbon stock) | 'proportion' (e.g. cover)
     p: 0.5,                // expected proportion (conservative default)
@@ -57,7 +57,11 @@ export function create() {
       }
       return Math.ceil(cochranN({ z: mod.z(), cv: mod.cv(), r: st.r, N }).n);
     },
-    priorEqN() { return TIERS[st.tier].priorEqN; },
+    priorEqN() { return PRIOR_MODES[st.priorMode].priorEqN; },
+
+    // Data weight in the conjugate posterior: 0 with no plots, → 1 as n → ∞.
+    // The prior's weight is the complement (1 − w), running 1 → 0.
+    dataWeight() { return mod.n / (mod.n + mod.priorEqN()); },
 
     // ---- lifecycle ----
     regenerate() {
@@ -81,8 +85,13 @@ export function create() {
         label: 'Ecosystem', value: st.ecoKey,
         options: ECOSYSTEM_ORDER.map((k) => ({ value: k, label: ECOSYSTEMS[k].label })),
         onChange: (v) => {
-          st.ecoKey = v; st.mean = ECOSYSTEMS[v].mean; st.sd = ECOSYSTEMS[v].sd;
-          sMean.set(st.mean); sSd.set(st.sd);
+          st.ecoKey = v;
+          // In default (Tier 2) mode the mean/SD track the IPCC defaults; in
+          // measured (Tier 3) mode the user's entered values are kept.
+          if (st.priorMode === 'default') {
+            st.mean = ECOSYSTEMS[v].mean; st.sd = ECOSYSTEMS[v].sd;
+            sMean.set(st.mean); sSd.set(st.sd);
+          }
           mod._ecoNote.textContent = ECOSYSTEMS[v].note;
           rebuild();
         },
@@ -94,10 +103,26 @@ export function create() {
       container.appendChild(mod._ecoNote);
 
       container.appendChild(segmented({
-        label: 'IPCC tier (prior strength)', value: String(st.tier),
-        options: [{ value: '1', label: 'Tier 1' }, { value: '2', label: 'Tier 2' }, { value: '3', label: 'Tier 3' }],
-        onChange: (v) => { st.tier = parseInt(v, 10); mod._refreshConv(); soft(); },
+        label: 'Prior (IPCC tier)', value: st.priorMode,
+        options: [
+          { value: 'default', label: PRIOR_MODES.default.label },
+          { value: 'measured', label: PRIOR_MODES.measured.label },
+        ],
+        onChange: (v) => {
+          st.priorMode = v;
+          mod._applyModeUI();
+          if (v === 'default') {
+            st.mean = ECOSYSTEMS[st.ecoKey].mean; st.sd = ECOSYSTEMS[st.ecoKey].sd;
+            sMean.set(st.mean); sSd.set(st.sd);
+            rebuild();
+          } else {
+            mod._markDirty(); mod._refreshConv(); soft(); ctrl.redraw();
+          }
+        },
       }));
+      mod._modeNote = document.createElement('p');
+      mod._modeNote.className = 'hint-text';
+      container.appendChild(mod._modeNote);
 
       container.appendChild(segmented({
         label: 'Sampling design', value: st.design,
@@ -165,6 +190,16 @@ export function create() {
       container.appendChild(sMean.root);
       container.appendChild(sSd.root);
 
+      // Lock mean/SD to the IPCC defaults in Tier 2 mode; unlock for Tier 3.
+      mod._applyModeUI = () => {
+        const measured = st.priorMode === 'measured';
+        sMean.input.disabled = !measured;
+        sSd.input.disabled = !measured;
+        sMean.root.classList.toggle('ctrl-locked', !measured);
+        sSd.root.classList.toggle('ctrl-locked', !measured);
+        if (mod._modeNote) mod._modeNote.textContent = PRIOR_MODES[st.priorMode].note;
+      };
+
       container.appendChild(slider({
         label: 'Plot area', min: 0.01, max: 1, step: 0.01, value: st.plotAreaHa,
         unit: 'ha', format: (v) => `${v.toFixed(2)} (${(v * 10000).toFixed(0)} m²)`,
@@ -181,6 +216,8 @@ export function create() {
         ],
         onChange: (v) => { st.viewMode = v; mod._markDirty(); ctrl.redraw(); },
       }));
+
+      mod._applyModeUI();
     },
 
     // ---- readouts ----
@@ -192,6 +229,7 @@ export function create() {
         moe: metricCard('Margin of error', '± / %'),
         err: metricCard('Actual error', '|x̄ − true|'),
         post: metricCard('Posterior mean', 'prior→data'),
+        weight: metricCard('Data weight w', 'n/(n+m) · prior 1−w'),
       };
       Object.values(mod._cards).forEach((c) => container.appendChild(c.root));
     },
@@ -361,6 +399,8 @@ export function create() {
       mod._cards.reqN.set(String(mod.requiredN()));
       const pct = ((mod.n / N) * 100).toFixed(1);
       mod._cards.curN.set(`${mod.n} · ${pct}%`);
+      const w = mod.dataWeight();
+      mod._cards.weight.set(`${w.toFixed(2)} · prior ${(1 - w).toFixed(2)}`);
       if (mod._last) {
         const e = mod._last;
         mod._cards.est.set(e.mean.toFixed(2));
@@ -433,10 +473,20 @@ export function create() {
 
     _ensureRecon() {
       if (st.viewMode === 'true') return;
-      if (mod._reconN === mod.n && mod._recon) return;
+      if (mod._reconN === mod.n && mod._blended) return;
       const idx = [];
       for (let i = 0; i < mod.n; i++) idx.push(mod.order[i]);
       mod._recon = land.reconstruct(idx);
+      // Posterior map: sampled cells show the measured truth; unsampled cells
+      // blend the prior mean with the data reconstruction by the data weight w,
+      // so at n = 0 the map is the flat prior and → the data map as n → ∞.
+      const w = mod.dataWeight();
+      const prior = st.mean;
+      const blended = new Float64Array(land.n);
+      for (let i = 0; i < land.n; i++) {
+        blended[i] = mod.mask[i] ? land.truth[i] : (1 - w) * prior + w * mod._recon[i];
+      }
+      mod._blended = blended;
       mod._reconN = mod.n;
     },
 
@@ -449,13 +499,13 @@ export function create() {
       if (st.viewMode === 'true') {
         return rampColor(ramp, clamp01((land.truth[i] - land.min) / span));
       }
+      // 'revealed' shows the posterior map (flat prior → data as w grows);
+      // 'error' shows that posterior map's error against the truth.
+      const est = mod._blended ? mod._blended[i] : st.mean;
       if (st.viewMode === 'revealed') {
-        if (mod.n === 0 || !mod._recon) return COLORS.beige;
-        return rampColor(ramp, clamp01((mod._recon[i] - land.min) / span));
+        return rampColor(ramp, clamp01((est - land.min) / span));
       }
-      // error view
-      if (mod.n === 0) return COLORS.beige;
-      const err = Math.abs((mod._recon ? mod._recon[i] : 0) - land.truth[i]);
+      const err = Math.abs(est - land.truth[i]);
       return rampColor(ERROR_RAMP, clamp01(err / (2 * st.sd)));
     },
 

@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sample Size Visualizer — Precision &amp; Margin of Error</title>
+  <link rel="stylesheet" href="style.css" />
+  <script
+    src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"
+    crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">Sample Size Visualizer</div>
+    <nav id="tabs" class="tabs"></nav>
+  </header>
+
+  <main class="layout">
+    <section class="left-col">
+      <div id="controls" class="panel controls-panel"></div>
+      <div class="panel sim-wrap">
+        <div class="sim-head">
+          <span id="sim-status" class="sim-status">n = 0 / 0</span>
+          <div class="sim-controls">
+            <button id="btn-play" class="action-btn">▶ Play</button>
+            <button id="btn-step" class="action-btn">+1</button>
+            <button id="btn-reset" class="action-btn">↻ Reset</button>
+          </div>
+        </div>
+        <canvas id="sim-canvas"></canvas>
+        <label class="speed-ctrl">
+          Speed
+          <input id="sim-speed" type="range" min="1" max="50" value="12" />
+          <span id="speed-val">12</span> plots/s
+        </label>
+      </div>
+    </section>
+
+    <section class="right-col">
+      <div id="readouts" class="readouts"></div>
+      <div id="charts" class="charts"></div>
+      <p id="callout" class="callout"></p>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <span class="footer-label">Model</span>
+    <span id="footer-eq" class="footer-eq"></span>
+  </footer>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

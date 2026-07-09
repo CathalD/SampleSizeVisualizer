@@ -1,5 +1,7 @@
 # Sample Size Visualizer
 
+Link to app - https://cathald.github.io/SampleSizeVisualizer/
+
 An interactive, browser-based educational tool for exploring how **sample size**
 controls the **precision** and **margin of error** of an ecosystem carbon-stock
 estimate — and how the **sampling design** changes how quickly a known landscape

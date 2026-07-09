@@ -8,13 +8,29 @@ no build step. Styled to match the companion Carbon Accumulation tool.
 
 ## Scientific basis
 
-**Sample size (Cochran / UNFCCC area-based).** For a mean at relative precision
-`r` (margin of error as a fraction of the mean) and confidence `1−α`:
+**Sample size (Cochran / UNFCCC area-based).** For a **mean** at relative
+precision `r` (margin of error as a fraction of the mean) and confidence `1−α`:
 
 ```
-n₀ = (z · CV / r)²,   n = n₀ / (1 + n₀/N),   N = A / a
+n₀ = (z · CV / r)² = z²·σ²/E²,   n = n₀ / (1 + (n₀ − 1)/N),   N = A / a
 E(n) = z · s/√n · √(1 − n/N)
 ```
+
+The finite-population-correction form `n = n₀/(1 + (n₀−1)/N)` matches the UNFCCC
+CDM standard and the paired Blue Carbon GEE sampling tool exactly (verified
+numerically: with a common z, the two agree to the decimal).
+
+For estimating a **proportion** (e.g. % cover) the tool offers the UNFCCC
+proportion formula, with `p = 0.5` the conservative default:
+
+```
+n = N · p(1−p) / [ (N − 1)·(E/z)² + p(1−p) ]
+```
+
+`z` is the exact normal quantile (e.g. 1.645 at 90%, as the CDM standard
+specifies). The GEE tool uses a cubic polynomial approximation of z that agrees
+to within ~1% up to 95% confidence but degrades badly beyond it (it cannot
+exceed ≈2.41), so above 95% this tool is the more accurate of the two.
 
 - `z` — normal quantile for the confidence level (two-sided). A normal rather
   than Student-t quantile is used; for the plot counts and the very high

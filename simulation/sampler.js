@@ -61,9 +61,17 @@ export function buildOrder(design, landscape, rng) {
   }
 
   if (design === 'systematicLinear') {
-    // Whole transects (rows) added from the centre outward; each transect is
-    // filled along its columns before the next is begun.
-    for (const r of dispersed(rows)) for (let c = 0; c < cols; c++) add(r * cols + c);
+    // Parallel transects (rows) in centre-outward order. Each transect is first
+    // sampled sparsely along its length (every 4th cell) so several well-spaced
+    // lines appear before any one is densified; later sweeps fill each line in,
+    // up to full coverage. This spreads early samples across the landscape
+    // instead of dumping them all onto one line.
+    const lineRows = dispersed(rows);
+    for (const stride of [4, 2, 1]) {
+      for (const r of lineRows) {
+        for (let c = 0; c < cols; c += stride) add(r * cols + c);
+      }
+    }
     return Int32Array.from(order);
   }
 

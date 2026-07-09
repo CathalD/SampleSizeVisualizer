@@ -69,6 +69,13 @@ the sample mean (→ the true mean) as plots accumulate, and its credible interv
 narrows. (Tier 1 in IPCC guidance is the crudest *global* default; this tool
 starts from Tier 2 regional defaults.)
 
+The **data weight** `w = n/(n + m)` is shown live: 0 with no plots (pure prior)
+and → 1 as n → ∞ (pure data); the prior's weight is `1 − w`. A stronger prior
+(higher Tier) makes w climb more slowly. The **Revealed** map is the posterior
+map — at n = 0 it is the flat prior; unsampled cells blend the prior mean with
+the data reconstruction by w, while sampled cells show the measured value — so
+the prior visibly updates toward the true map as samples come in.
+
 ### Ecosystem defaults
 
 Supplied in Mg C ha⁻¹ ± Mg C ha⁻¹ and converted to kg C m⁻² (×0.1). The ± is

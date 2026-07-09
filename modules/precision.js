@@ -59,6 +59,10 @@ export function create() {
     },
     priorEqN() { return PRIOR_MODES[st.priorMode].priorEqN; },
 
+    // Data weight in the conjugate posterior: 0 with no plots, → 1 as n → ∞.
+    // The prior's weight is the complement (1 − w), running 1 → 0.
+    dataWeight() { return mod.n / (mod.n + mod.priorEqN()); },
+
     // ---- lifecycle ----
     regenerate() {
       const eco = ECOSYSTEMS[st.ecoKey];
@@ -112,7 +116,7 @@ export function create() {
             sMean.set(st.mean); sSd.set(st.sd);
             rebuild();
           } else {
-            mod._refreshConv(); soft();
+            mod._markDirty(); mod._refreshConv(); soft(); ctrl.redraw();
           }
         },
       }));
@@ -225,6 +229,7 @@ export function create() {
         moe: metricCard('Margin of error', '± / %'),
         err: metricCard('Actual error', '|x̄ − true|'),
         post: metricCard('Posterior mean', 'prior→data'),
+        weight: metricCard('Data weight w', 'n/(n+m) · prior 1−w'),
       };
       Object.values(mod._cards).forEach((c) => container.appendChild(c.root));
     },
@@ -394,6 +399,8 @@ export function create() {
       mod._cards.reqN.set(String(mod.requiredN()));
       const pct = ((mod.n / N) * 100).toFixed(1);
       mod._cards.curN.set(`${mod.n} · ${pct}%`);
+      const w = mod.dataWeight();
+      mod._cards.weight.set(`${w.toFixed(2)} · prior ${(1 - w).toFixed(2)}`);
       if (mod._last) {
         const e = mod._last;
         mod._cards.est.set(e.mean.toFixed(2));
@@ -466,10 +473,20 @@ export function create() {
 
     _ensureRecon() {
       if (st.viewMode === 'true') return;
-      if (mod._reconN === mod.n && mod._recon) return;
+      if (mod._reconN === mod.n && mod._blended) return;
       const idx = [];
       for (let i = 0; i < mod.n; i++) idx.push(mod.order[i]);
       mod._recon = land.reconstruct(idx);
+      // Posterior map: sampled cells show the measured truth; unsampled cells
+      // blend the prior mean with the data reconstruction by the data weight w,
+      // so at n = 0 the map is the flat prior and → the data map as n → ∞.
+      const w = mod.dataWeight();
+      const prior = st.mean;
+      const blended = new Float64Array(land.n);
+      for (let i = 0; i < land.n; i++) {
+        blended[i] = mod.mask[i] ? land.truth[i] : (1 - w) * prior + w * mod._recon[i];
+      }
+      mod._blended = blended;
       mod._reconN = mod.n;
     },
 
@@ -482,13 +499,13 @@ export function create() {
       if (st.viewMode === 'true') {
         return rampColor(ramp, clamp01((land.truth[i] - land.min) / span));
       }
+      // 'revealed' shows the posterior map (flat prior → data as w grows);
+      // 'error' shows that posterior map's error against the truth.
+      const est = mod._blended ? mod._blended[i] : st.mean;
       if (st.viewMode === 'revealed') {
-        if (mod.n === 0 || !mod._recon) return COLORS.beige;
-        return rampColor(ramp, clamp01((mod._recon[i] - land.min) / span));
+        return rampColor(ramp, clamp01((est - land.min) / span));
       }
-      // error view
-      if (mod.n === 0) return COLORS.beige;
-      const err = Math.abs((mod._recon ? mod._recon[i] : 0) - land.truth[i]);
+      const err = Math.abs(est - land.truth[i]);
       return rampColor(ERROR_RAMP, clamp01(err / (2 * st.sd)));
     },
 

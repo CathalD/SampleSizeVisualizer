@@ -11,7 +11,7 @@ import { COLORS, RAMPS, ERROR_RAMP, rampColor, clamp01 } from '../colors.js';
 import { ECOSYSTEMS, ECOSYSTEM_ORDER, TIERS } from '../data/ecosystems.js';
 import { Landscape } from '../simulation/landscape.js';
 import { buildOrder, estimate } from '../simulation/sampler.js';
-import { zFor, cochranN, moeAbs } from '../simulation/stats.js';
+import { zFor, cochranN, proportionN, moeAbs, moeProp } from '../simulation/stats.js';
 
 const ROWS = 48, COLS = 48;
 
@@ -20,8 +20,10 @@ export function create() {
     ecoKey: 'marsh',
     tier: 2,
     design: 'stratified',
+    paramType: 'mean',     // 'mean' (carbon stock) | 'proportion' (e.g. cover)
+    p: 0.5,                // expected proportion (conservative default)
     confidence: 0.90,
-    r: 0.10,               // relative margin of error
+    r: 0.10,               // margin of error (relative for mean, absolute for proportion)
     mean: ECOSYSTEMS.marsh.mean,
     sd: ECOSYSTEMS.marsh.sd,
     plotAreaHa: 0.05,      // ha per plot
@@ -38,7 +40,7 @@ export function create() {
     title: 'Precision & margin of error',
     rows: ROWS, cols: COLS,
     equation:
-      'n = (z·CV / r)² / (1 + n₀/N) &nbsp;·&nbsp; E(n) = z·s/√n · √(1 − n/N) &nbsp;·&nbsp; N = A/a',
+      'n = (z·CV / r)² / (1 + (n₀−1)/N) &nbsp;·&nbsp; E(n) = z·s/√n · √(1 − n/N) &nbsp;·&nbsp; N = A/a',
     callout:
       'Precision is expensive: halving the margin of error quadruples the plots needed ' +
       '(n ∝ 1/E²). Spatial design and stratification change how fast the known map is revealed.',
@@ -49,7 +51,12 @@ export function create() {
     cv() { return st.sd / st.mean; },
     plotAreaM2() { return st.plotAreaHa * 10000; },
     totalAreaHa() { return N * st.plotAreaHa; },
-    requiredN() { return Math.ceil(cochranN({ z: mod.z(), cv: mod.cv(), r: st.r, N }).n); },
+    requiredN() {
+      if (st.paramType === 'proportion') {
+        return Math.ceil(proportionN({ z: mod.z(), p: st.p, E: st.r, N }).n);
+      }
+      return Math.ceil(cochranN({ z: mod.z(), cv: mod.cv(), r: st.r, N }).n);
+    },
     priorEqN() { return TIERS[st.tier].priorEqN; },
 
     // ---- lifecycle ----
@@ -102,6 +109,31 @@ export function create() {
         ],
         onChange: (v) => { st.design = v; rebuild(); },
       }));
+
+      container.appendChild(segmented({
+        label: 'Parameter type', value: st.paramType,
+        options: [
+          { value: 'mean', label: 'Mean (carbon stock)' },
+          { value: 'proportion', label: 'Proportion (cover)' },
+        ],
+        onChange: (v) => {
+          st.paramType = v;
+          mod._pRow.style.display = v === 'proportion' ? '' : 'none';
+          if (mod._heroHead) mod._heroHead.style.display = v === 'proportion' ? 'none' : '';
+          if (v === 'proportion') st.heroMode = 'moe';
+          mod._setFooter();
+          mod._refreshHero(); mod._refreshReadouts();
+        },
+      }));
+
+      const sP = slider({
+        label: 'Expected proportion p', min: 0.05, max: 0.95, step: 0.05, value: st.p,
+        unit: '', format: (v) => v.toFixed(2),
+        onInput: (v) => { st.p = v; soft(); },
+      });
+      mod._pRow = sP.root;
+      mod._pRow.style.display = st.paramType === 'proportion' ? '' : 'none';
+      container.appendChild(mod._pRow);
 
       container.appendChild(select({
         label: 'Confidence level', value: String(st.confidence),
@@ -169,6 +201,8 @@ export function create() {
       // Hero chart (sample size vs precision) with an axis toggle.
       const heroHead = document.createElement('div');
       heroHead.className = 'chart-toolbar';
+      mod._heroHead = heroHead;
+      if (st.paramType === 'proportion') heroHead.style.display = 'none';
       heroHead.appendChild(segmented({
         label: 'x-axis', value: st.heroMode,
         options: [
@@ -248,18 +282,31 @@ export function create() {
       mod._refreshConv();
     },
 
+    _setFooter() {
+      const eqEl = document.getElementById('footer-eq');
+      if (!eqEl) return;
+      eqEl.innerHTML = st.paramType === 'proportion'
+        ? 'n = N·p(1−p) / [ (N−1)·(E/z)² + p(1−p) ] &nbsp;·&nbsp; conservative p = 0.5 &nbsp;·&nbsp; N = A/a'
+        : mod.equation;
+    },
+
     _refreshHero() {
       const z = mod.z(), cv = mod.cv();
       const ch = mod._hero;
       let data = [], refLines = [], xTitle, yTitle, legend;
       if (st.heroMode === 'moe') {
         const step = Math.max(1, Math.floor(N / 220));
+        const isProp = st.paramType === 'proportion';
         for (let n = 1; n <= N; n += step) {
-          data.push({ x: n, y: (moeAbs({ z, sigma: st.sd, n, N }) / st.mean) * 100 });
+          const y = isProp
+            ? moeProp({ z, p: st.p, n, N }) * 100
+            : (moeAbs({ z, sigma: st.sd, n, N }) / st.mean) * 100;
+          data.push({ x: n, y });
         }
         ch.data.datasets[0].borderColor = COLORS.moe;
         ch.options.scales.y.max = Math.min(200, st.r * 100 * 5);
-        xTitle = 'sample size n'; yTitle = 'margin of error (%)';
+        xTitle = 'sample size n';
+        yTitle = isProp ? 'margin of error (proportion, ± % points)' : 'margin of error (% of mean)';
         refLines = [
           { scaleID: 'y', axis: 'y', value: st.r * 100, color: COLORS.target, label: `target ${(st.r * 100).toFixed(0)}%` },
           { scaleID: 'x', axis: 'x', value: mod.requiredN(), color: COLORS.requiredN, label: `n=${mod.requiredN()}` },

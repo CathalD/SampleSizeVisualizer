@@ -38,18 +38,41 @@ export function zFor(confidence) {
   return normInv(1 - alpha / 2);
 }
 
-// Cochran sample size for a mean at relative precision r, with finite
+// Cochran sample size for a MEAN at relative precision r, with finite
 // population correction. N = A/a (number of possible plots).
 // r = relative margin of error (E/mean); cv = s/mean.
+//
+// The FPC form matches the UNFCCC/CDM standard and the paired GEE sampling
+// tool: n = n0 / (1 + (n0 − 1)/N), where n0 = z²·σ²/E² = (z·CV/r)².
 export function cochranN({ z, cv, r, N }) {
   const n0 = Math.pow((z * cv) / r, 2);
-  const n = N && isFinite(N) ? n0 / (1 + n0 / N) : n0;
+  const n = N && isFinite(N) ? n0 / (1 + (n0 - 1) / N) : n0;
   return { n0, n: Math.min(n, N || n) };
 }
 
-// Achieved absolute margin of error at sample size n (with FPC).
+// UNFCCC sample size for a PROPORTION p at absolute margin of error E:
+//   n = N·p(1−p) / [ (N−1)·(E/z)² + p(1−p) ]
+// (p = 0.5 is the conservative default.) Returned n0 is the infinite-population
+// limit p(1−p)·(z/E)².
+export function proportionN({ z, p, E, N }) {
+  const pq = p * (1 - p);
+  const n0 = pq * Math.pow(z / E, 2);
+  if (!N || !isFinite(N)) return { n0, n: n0 };
+  const n = (N * pq) / ((N - 1) * Math.pow(E / z, 2) + pq);
+  return { n0, n: Math.min(n, N) };
+}
+
+// Achieved absolute margin of error of a MEAN at sample size n (with FPC).
 export function moeAbs({ z, sigma, n, N }) {
   if (n <= 0) return Infinity;
   const fpc = N && isFinite(N) ? Math.max(0, 1 - n / N) : 1;
   return z * (sigma / Math.sqrt(n)) * Math.sqrt(fpc);
+}
+
+// Achieved absolute margin of error of a PROPORTION at sample size n, using the
+// same (N−1) FPC structure as the UNFCCC proportion formula.
+export function moeProp({ z, p, n, N }) {
+  if (n <= 0) return Infinity;
+  const fpc = N && isFinite(N) && N > 1 ? Math.max(0, (N - n) / (N - 1)) : 1;
+  return z * Math.sqrt((p * (1 - p) / n) * fpc);
 }

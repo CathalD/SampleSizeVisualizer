@@ -58,6 +58,18 @@ body { margin: 0; background: var(--bg); color: var(--text); font-size: 14px; li
 .metric-val { font-family: ui-monospace, monospace; font-size: 18px; font-weight: 600; margin-top: 2px; }
 .metric-hint { font-size: 10px; color: var(--muted); margin-top: 2px; }
 
+.alloc-panel { grid-column: 1 / -1; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 10px; }
+.alloc-panel:empty { display: none; }
+.alloc-title { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 6px; }
+.alloc-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.alloc-table th, .alloc-table td { text-align: right; padding: 3px 8px; border-bottom: 1px solid var(--border); }
+.alloc-table th:first-child, .alloc-table td:first-child { text-align: left; }
+.alloc-table th { font-size: 11px; color: var(--muted); font-weight: 600; }
+.alloc-table .alloc-sum td { font-weight: 700; border-bottom: none; }
+.alloc-note { font-size: 11px; color: var(--muted); margin-top: 6px; }
+
+.chart-caption { font-size: 12px; color: var(--muted); margin: 8px 0 0; font-weight: 600; }
+
 .charts { display: flex; flex-direction: column; gap: 8px; }
 .chart-toolbar { display: flex; justify-content: flex-end; }
 .chart-toolbar .ctrl { flex-direction: row; align-items: center; gap: 8px; }

@@ -48,7 +48,9 @@ reveal it differently:
 
 - **Random** — simple random plots.
 - **Transect** — parallel systematic lines (centre-outward).
-- **Grid** — systematic grid, densified coarse→fine.
+- **Grid** — systematic grid via a low-discrepancy (R2) sequence, so every
+  *partial* grid is evenly spread across the map (not clustered), which is what
+  lets a systematic design perform well on a gradient.
 - **Stratified** — proportional allocation across the map's strata; uses the
   pooled stratified estimator, which removes between-strata variance and so
   reaches a given precision with fewer plots.
@@ -87,14 +89,54 @@ prior uncertainty about the mean is separate and set by the Tier.
 | Ecosystem | Mean (kg C m⁻²) | ± SD | Spatial character |
 |---|---|---|---|
 | Tidal marsh | 9.1 | 6.0 | high/low marsh strata |
-| Seagrass | 10.8 | 9.0 | patchy beds + bare sand |
+| Seagrass / eelgrass | 12.0 | 6.0 | patchy beds + bare sand (CV 0.5, workshop planning example) |
 | Forest | 13.0 | 3.5 | fairly homogeneous |
 | Mineral wetlands | 20.0 | 8.5 | patchiness + gradient |
 | Peatlands | 210.0 | 100.0 | depth-driven gradient |
 | Grasslands | 16.0 | 4.5 | high/low meadow |
 
-> The mean/SD values are placeholders in the shape of IPCC Tier 2/3 defaults —
-> replace them in `data/ecosystems.js` with sourced values as needed.
+> Most mean/SD values are placeholders in the shape of IPCC Tier 2/3 defaults —
+> replace them in `data/ecosystems.js` with sourced values as needed. The
+> **seagrass / eelgrass** entry (12.0 ± 6.0, CV 0.5) is set to the eelgrass
+> planning example in the Blue Carbon Eelgrass Workshop (Part 2).
+
+## Teaching views & workshop alignment
+
+This tool doubles as the interactive companion to the **Project Planning** part of
+the Blue Carbon Eelgrass Workshop. Alongside the sample-size number it shows:
+
+- **Change a variable, watch *n* move.** The hero chart plots required *n* against
+  the **margin of error**, **confidence level**, **CV**, or **total area** — so the
+  cost of each choice is visible (halving the margin ≈ 4× the plots).
+- **Which design wins here?** A comparison chart runs all four designs on the same
+  known map and plots their actual error vs *n*. The honest lesson: **stratification
+  is the biggest lever where strata are real; for a well-mixed site, plot count
+  matters more than which design you pick.**
+- **Why a prior helps.** The convergence chart overlays the frequentist estimate and
+  the Bayesian posterior; the *Prior helps by* read-out shows how much closer to the
+  truth the posterior sits while *n* is small (→ 0 as data takes over).
+- **Stratified allocation** (mean + stratified design): proportional shares with a
+  **minimum of 5 plots per stratum**, rounded up — mirroring the WWF-Canada calculator
+  (Sheet 2 / Step 5), so the strata total sits at or above the pooled *n*.
+- **Attrition padding**: an *expected usable %* input reports how many to **collect**
+  so enough usable plots remain (the workshop's ~70% → oversample rule; e.g. the
+  eelgrass example's required 66 → collect ~95).
+
+### Notation crosswalk (UNFCCC / CDM ↔ workshop)
+
+| This tool | Workshop / UNFCCC | Meaning |
+|---|---|---|
+| `z` | `Z_{α/2}` | normal quantile for the confidence level |
+| `r` (target precision) | `E` / `e_abs` | margin of error, relative to the mean |
+| `s` (spatial SD) | `SD` | standard-deviation prior |
+| `CV = s/x̄` | `CV` | coefficient of variation |
+| `N = A/a` | `N` | number of possible plots (area ÷ plot area) |
+| `n` | `n` | plots to collect |
+
+**Tier convention.** This tool uses IPCC-standard tiers — **Tier 2** = regional
+default, **Tier 3** = your own measured data. (The workshop's spreadsheet labels
+these the other way round; the IPCC-correct convention used here is the one to
+follow — a flag to reconcile on the workshop side.)
 
 ## Running locally
 

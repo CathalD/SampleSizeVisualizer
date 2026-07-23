@@ -127,7 +127,7 @@ class Controller {
   }
 
   _status() {
-    const N = this.module.rows * this.module.cols;
+    const N = this.module.maxN || this.module.rows * this.module.cols;
     const n = this.module.n;
     this.dom.status.textContent = `n = ${n} / ${N}  (${((n / N) * 100).toFixed(1)}%)`;
   }

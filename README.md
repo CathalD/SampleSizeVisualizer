@@ -61,44 +61,49 @@ the tool also shows the **actual error** `|x̄ − μ_true|` — so you can see 
 design's confidence interval is well-calibrated and when it is not.
 
 **Prior updating (Bayesian).** The prior on the mean is `μ ~ N(μ₀, σ²/m)`, with
-two sources selectable via the Tier control:
+two sources selectable via the **Prior source** control:
 
-- **Tier 2 · default** — μ₀, σ are the locked IPCC regional defaults for the
-  chosen ecosystem; a moderate-strength prior (`m ≈ 4` equivalent plots).
-- **Tier 3 · measured** — the user enters their own measured mean/SD as the
-  prior; a stronger prior (`m ≈ 12`), since site measurement is more trusted.
+- **Regional default** — μ₀, σ are the locked Canadian regional reference values
+  for the chosen ecosystem; a moderate-strength prior (`m ≈ 4` equivalent plots).
+- **Your measured data** — you enter your own measured mean/SD as the prior; a
+  stronger prior (`m ≈ 12`), since a site measurement is more trusted.
 
 The conjugate posterior mean `(m·μ₀ + n·x̄)/(m + n)` shifts from the prior toward
 the sample mean (→ the true mean) as plots accumulate, and its credible interval
-narrows. (Tier 1 in IPCC guidance is the crudest *global* default; this tool
-starts from Tier 2 regional defaults.)
+narrows.
 
 The **data weight** `w = n/(n + m)` is shown live: 0 with no plots (pure prior)
 and → 1 as n → ∞ (pure data); the prior's weight is `1 − w`. A stronger prior
-(higher Tier) makes w climb more slowly. The **Revealed** map is the posterior
-map — at n = 0 it is the flat prior; unsampled cells blend the prior mean with
-the data reconstruction by w, while sampled cells show the measured value — so
-the prior visibly updates toward the true map as samples come in.
+makes w climb more slowly. The **Revealed** map is the posterior map — at n = 0
+it is the flat prior; unsampled cells blend the prior mean with the data
+reconstruction by w, while sampled cells show the measured value — so the prior
+visibly updates toward the true map as samples come in.
 
-### Ecosystem defaults
+### Ecosystem reference values (Canada)
 
-Supplied in Mg C ha⁻¹ ± Mg C ha⁻¹ and converted to kg C m⁻² (×0.1). The ± is
-treated as the **spatial SD** (σ) driving heterogeneity and Cochran's `s`;
-prior uncertainty about the mean is separate and set by the Tier.
+Shown in kg C m⁻² with the spatial SD as ±. **Coastal** ecosystems use Canadian
+coastal measurements (BC and, where available, the East coast); **terrestrial**
+soil carbon uses Sothe et al. (2022), the 250 m SOC map of Canada. Depths and
+methods differ between sources, so treat these as teaching reference points, not
+a harmonised inventory — swap in your own site values in the tool.
 
-| Ecosystem | Mean (kg C m⁻²) | ± SD | Spatial character |
+| Ecosystem | Mean (kg C m⁻²) | ± SD | Source |
 |---|---|---|---|
-| Tidal marsh | 9.1 | 6.0 | high/low marsh strata |
-| Seagrass / eelgrass | 12.0 | 6.0 | patchy beds + bare sand (CV 0.5, workshop planning example) |
-| Forest | 13.0 | 3.5 | fairly homogeneous |
-| Mineral wetlands | 20.0 | 8.5 | patchiness + gradient |
-| Peatlands | 210.0 | 100.0 | depth-driven gradient |
-| Grasslands | 16.0 | 4.5 | high/low meadow |
+| Tidal marsh | 10.0 | 5.0 | Bay of Fundy salt marsh (Connor et al. 2001; Chmura) |
+| Seagrass / eelgrass | 1.3 | 0.5 | Pacific Canada eelgrass, Clayoquot Sound BC (Postlethwaite et al. 2018) |
+| Forest (soil C) | 8.7 | 3.0 | Canadian boreal forest soil to ~1 m (Sothe et al. 2022) |
+| Mineral wetlands (soil C) | 20.0 | 9.0 | Canadian mineral wetlands, approximate (Sothe et al. 2022) |
+| Peatlands (soil C) | 140.0 | 70.0 | Canadian peatlands, whole peat column (Sothe et al. 2022) |
+| Grasslands (soil C) | 6.0 | 2.0 | Canadian prairie grassland soil (Sothe et al. 2022) |
 
-> Most mean/SD values are placeholders in the shape of IPCC Tier 2/3 defaults —
-> replace them in `data/ecosystems.js` with sourced values as needed. The
-> **seagrass / eelgrass** entry (12.0 ± 6.0, CV 0.5) is set to the eelgrass
-> planning example in the Blue Carbon Eelgrass Workshop (Part 2).
+> Full per-ecosystem sources are in `data/ecosystems.js`. Pacific-coast eelgrass
+> sediment stocks are genuinely low; Atlantic (Nova Scotia) sediment stocks are
+> less quantified. Terrestrial values are read from the Sothe et al. (2022)
+> Canadian SOC map — read your own region off the map for a local value.
+
+**Reference:** Sothe, C., Gonsamo, A., Arabian, J., Kurz, W. A., Finkelstein, S. A.,
+& Snider, J. (2022). *Large Soil Carbon Storage in Terrestrial Ecosystems of Canada.*
+Global Biogeochemical Cycles 36, e2021GB007213.
 
 ## Teaching views & workshop alignment
 
@@ -119,8 +124,11 @@ the Blue Carbon Eelgrass Workshop. Alongside the sample-size number it shows:
   **minimum of 5 plots per stratum**, rounded up — mirroring the WWF-Canada calculator
   (Sheet 2 / Step 5), so the strata total sits at or above the pooled *n*.
 - **Attrition padding**: an *expected usable %* input reports how many to **collect**
-  so enough usable plots remain (the workshop's ~70% → oversample rule; e.g. the
-  eelgrass example's required 66 → collect ~95).
+  so enough usable plots remain (the workshop's ~70% → oversample rule; e.g. a
+  CV-0.5 site's required 66 → collect ~95).
+- **Realistic scale**: the interactive campaign and the *n*-axis charts focus on
+  **~50 plots** — the most many partners can collect — so you can watch the estimate
+  converge instead of staring at a long flat tail.
 
 ### Notation crosswalk (UNFCCC / CDM ↔ workshop)
 
@@ -133,10 +141,10 @@ the Blue Carbon Eelgrass Workshop. Alongside the sample-size number it shows:
 | `N = A/a` | `N` | number of possible plots (area ÷ plot area) |
 | `n` | `n` | plots to collect |
 
-**Tier convention.** This tool uses IPCC-standard tiers — **Tier 2** = regional
-default, **Tier 3** = your own measured data. (The workshop's spreadsheet labels
-these the other way round; the IPCC-correct convention used here is the one to
-follow — a flag to reconcile on the workshop side.)
+**Prior source, not IPCC tiers.** The prior is framed simply as **Regional default**
+vs **Your measured data**, rather than IPCC Tier 2/3 labels — which the workshop
+spreadsheet applies in the inverted order and which caused confusion. Regional
+defaults are the Canadian reference values above.
 
 ## Running locally
 

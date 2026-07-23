@@ -2,7 +2,7 @@
 //
 // Ties together: (1) the Cochran/UNFCCC sample-size curve (frequentist), and
 // (2) a known "true" carbon map that four sampling designs progressively
-// reveal, with a Bayesian prior (IPCC default, strength set by Tier) updating
+// reveal, with a Bayesian prior (regional default, strength set by source) updating
 // toward the truth as plots are collected.
 
 import { slider, segmented, select, metricCard, el } from '../components/controls.js';
@@ -26,7 +26,7 @@ const CMP = {
 export function create() {
   const st = {
     ecoKey: 'marsh',
-    priorMode: 'default',  // 'default' (Tier 2 IPCC) | 'measured' (Tier 3, user-entered)
+    priorMode: 'default',  // 'default' (regional reference) | 'measured' (user-entered)
     design: 'stratified',
     paramType: 'mean',     // 'mean' (carbon stock) | 'proportion' (e.g. cover)
     p: 0.5,                // expected proportion (conservative default)
@@ -41,6 +41,10 @@ export function create() {
     speed: 12,             // samples / second when playing
   };
   const MIN_PER_STRATUM = 5; // workshop rule: at least 5 plots per stratum
+  // Most partners can realistically collect up to ~50 plots, so the interactive
+  // campaign and the n-axis charts focus on that range (rather than the full
+  // 2304-cell population, which buried the convergence in a long flat tail).
+  const COLLECT_CAP = 50;
 
   const land = new Landscape(ROWS, COLS);
   const N = land.n;
@@ -49,12 +53,13 @@ export function create() {
     id: 'precision',
     title: 'Precision & margin of error',
     rows: ROWS, cols: COLS,
+    maxN: COLLECT_CAP,   // interactive campaign cap (see COLLECT_CAP above)
     equation:
       'n = (z·CV / r)² / (1 + (n₀−1)/N) &nbsp;·&nbsp; E(n) = z·s/√n · √(1 − n/N) &nbsp;·&nbsp; N = A/a',
     callout:
       'Precision is expensive: halving the margin of error quadruples the plots (n ∝ 1/E²). ' +
       'Stratification is the biggest design lever where strata are real; otherwise plot count ' +
-      'matters more than which design you pick. A prior — an IPCC default or your own data — ' +
+      'matters more than which design you pick. A prior — a regional default or your own data — ' +
       'steadies the estimate while n is still small.',
     state: st,
 
@@ -128,8 +133,8 @@ export function create() {
         options: ECOSYSTEM_ORDER.map((k) => ({ value: k, label: ECOSYSTEMS[k].label })),
         onChange: (v) => {
           st.ecoKey = v;
-          // In default (Tier 2) mode the mean/SD track the IPCC defaults; in
-          // measured (Tier 3) mode the user's entered values are kept.
+          // In default mode the mean/SD track the regional reference values; in
+          // measured mode the user's entered values are kept.
           if (st.priorMode === 'default') {
             st.mean = ECOSYSTEMS[v].mean; st.sd = ECOSYSTEMS[v].sd;
             sMean.set(st.mean); sSd.set(st.sd);
@@ -145,7 +150,7 @@ export function create() {
       container.appendChild(mod._ecoNote);
 
       container.appendChild(segmented({
-        label: 'Prior (IPCC tier)', value: st.priorMode,
+        label: 'Prior source', value: st.priorMode,
         options: [
           { value: 'default', label: PRIOR_MODES.default.label },
           { value: 'measured', label: PRIOR_MODES.measured.label },
@@ -232,7 +237,7 @@ export function create() {
       container.appendChild(sMean.root);
       container.appendChild(sSd.root);
 
-      // Lock mean/SD to the IPCC defaults in Tier 2 mode; unlock for Tier 3.
+      // Lock mean/SD to the regional reference in default mode; unlock for measured.
       mod._applyModeUI = () => {
         const measured = st.priorMode === 'measured';
         sMean.input.disabled = !measured;
@@ -451,9 +456,11 @@ export function create() {
         return;
       }
       const { nGrid, curves } = designComparison(land, mod.z(),
-        { maxN: Math.min(200, N), points: 24, seeds: 8 });
+        { maxN: COLLECT_CAP, points: 24, seeds: 8 });
       const keys = ['random', 'systematicGrid', 'systematicLinear', 'stratified'];
       keys.forEach((k, i) => { ds[i].data = nGrid.map((n, gi) => ({ x: n, y: curves[k][gi] })); });
+      mod._cmp.options.scales.x.min = 0;
+      mod._cmp.options.scales.x.max = COLLECT_CAP;
       mod._cmp.update('none');
     },
 
@@ -468,17 +475,25 @@ export function create() {
     _refreshHero() {
       const z = mod.z(), cv = mod.cv();
       const ch = mod._hero;
+      // reset the n-axis window each refresh (only the 'moe' mode pins it)
+      ch.options.scales.x.min = undefined;
+      ch.options.scales.x.max = undefined;
       let data = [], refLines = [], xTitle, yTitle, legend;
       if (st.heroMode === 'moe') {
-        const step = Math.max(1, Math.floor(N / 220));
         const isProp = st.paramType === 'proportion';
-        for (let n = 1; n <= N; n += step) {
+        // Show up to a little past the required n so the curve visibly reaches
+        // the target, capped so it never becomes a long flat tail.
+        const viewMax = Math.min(150, Math.max(COLLECT_CAP, Math.ceil(mod.requiredN() * 1.15)));
+        const step = Math.max(1, Math.floor(viewMax / 120));
+        for (let n = 1; n <= viewMax; n += step) {
           const y = isProp
             ? moeProp({ z, p: st.p, n, N }) * 100
             : (moeAbs({ z, sigma: st.sd, n, N }) / st.mean) * 100;
           data.push({ x: n, y });
         }
         ch.data.datasets[0].borderColor = COLORS.moe;
+        ch.options.scales.x.min = 0;
+        ch.options.scales.x.max = viewMax;
         ch.options.scales.y.max = Math.min(200, st.r * 100 * 5);
         xTitle = 'sample size n';
         yTitle = isProp ? 'margin of error (proportion, ± % points)' : 'margin of error (% of mean)';
@@ -553,6 +568,8 @@ export function create() {
       const ch = mod._conv;
       ch.options.scales.y.min = Math.max(0, st.mean * 0.5);
       ch.options.scales.y.max = st.mean * 1.5;
+      ch.options.scales.x.min = 0;
+      ch.options.scales.x.max = COLLECT_CAP;   // focus on the realistic campaign range
       ch.options.plugins.referenceLines.lines = [
         { scaleID: 'y', axis: 'y', value: land.trueMean, color: COLORS.truth, label: `true = ${land.trueMean.toFixed(1)}` },
       ];
@@ -587,7 +604,7 @@ export function create() {
     },
 
     // Conjugate normal-normal posterior with known σ; prior = priorEqN pseudo-
-    // observations at the IPCC default mean.
+    // observations at the regional-default mean.
     _posterior() {
       const m = mod.priorEqN();
       const n = mod.n;
@@ -599,8 +616,8 @@ export function create() {
 
     // ---- simulation stepping (driven by app loop) ----
     addSamples(k) {
-      if (mod.n >= N) return true;
-      const target = Math.min(N, mod.n + Math.max(1, Math.floor(k)));
+      if (mod.n >= COLLECT_CAP) return true;
+      const target = Math.min(COLLECT_CAP, mod.n + Math.max(1, Math.floor(k)));
       for (let i = mod.n; i < target; i++) mod.mask[mod.order[i]] = 1;
       mod.n = target;
       mod._last = estimate(st.design, mod.order, mod.n, land, mod.z());
@@ -628,7 +645,7 @@ export function create() {
         const nowLine = lines.find((l) => l.label === 'now');
         if (nowLine) { nowLine.value = mod.n; mod._hero.update('none'); }
       }
-      return mod.n >= N;
+      return mod.n >= COLLECT_CAP;
     },
 
     reset() {
@@ -639,7 +656,7 @@ export function create() {
       mod._markDirty();
     },
 
-    done() { return mod.n >= N; },
+    done() { return mod.n >= COLLECT_CAP; },
 
     // ---- raster rendering ----
     _markDirty() { mod._reconN = -1; },

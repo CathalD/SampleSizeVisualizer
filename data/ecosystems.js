@@ -23,13 +23,18 @@ export const ECOSYSTEMS = {
     note: 'High vs low marsh — stratified sampling gains the most.',
   },
   seagrass: {
-    label: 'Seagrass',
-    mean: 10.8, sd: 9.0,          // 108 ± 90
+    label: 'Seagrass / eelgrass',
+    mean: 12.0, sd: 6.0,          // 120 ± 60 Mg C ha⁻¹  →  CV 0.5
     ramp: 'seagrass',
     // Patchy beds over bare sand: patch-dominated with a high nugget.
     structure: { gradient: 0.1, strata: 0.25, patch: 0.75, nugget: 0.5 },
     strata: 2,
-    note: 'Patchy beds over bare sand — high variance, needs more plots.',
+    // Matches the eelgrass planning example in the Blue Carbon Eelgrass Workshop
+    // (Part 2): ~120 ± 60 Mg C ha⁻¹ (CV 0.5), WWF-Canada regional carbon map.
+    // Real eelgrass sediment carbon varies widely between meadows — see the
+    // workshop's Part 4 (Röhr et al. 2018; Postlethwaite et al. 2018).
+    source: 'WWF-Canada regional carbon map — eelgrass planning example (workshop Part 2)',
+    note: 'Patchy beds over bare sand — stratify beds vs sand; high variance needs more plots.',
   },
   forest: {
     label: 'Forest',

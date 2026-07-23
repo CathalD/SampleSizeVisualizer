@@ -5,15 +5,23 @@
 // reveal, with a Bayesian prior (IPCC default, strength set by Tier) updating
 // toward the truth as plots are collected.
 
-import { slider, segmented, select, metricCard } from '../components/controls.js';
+import { slider, segmented, select, metricCard, el } from '../components/controls.js';
 import { createChart, buildLegend } from '../components/chart-panel.js';
 import { COLORS, RAMPS, ERROR_RAMP, rampColor, clamp01 } from '../colors.js';
 import { ECOSYSTEMS, ECOSYSTEM_ORDER, PRIOR_MODES } from '../data/ecosystems.js';
 import { Landscape } from '../simulation/landscape.js';
-import { buildOrder, estimate } from '../simulation/sampler.js';
+import { buildOrder, estimate, designComparison } from '../simulation/sampler.js';
 import { zFor, cochranN, proportionN, moeAbs, moeProp } from '../simulation/stats.js';
 
 const ROWS = 48, COLS = 48;
+
+// Palette for the design-comparison chart (one colour per design).
+const CMP = {
+  random: '#6b6b76',            // grey
+  systematicGrid: '#2d8a4e',    // green
+  systematicLinear: '#854F0B',  // amber
+  stratified: '#7F77DD',        // purple
+};
 
 export function create() {
   const st = {
@@ -27,10 +35,12 @@ export function create() {
     mean: ECOSYSTEMS.marsh.mean,
     sd: ECOSYSTEMS.marsh.sd,
     plotAreaHa: 0.05,      // ha per plot
+    usablePct: 70,         // expected % of collected plots that yield usable data
     heroMode: 'moe',
     viewMode: 'true',
     speed: 12,             // samples / second when playing
   };
+  const MIN_PER_STRATUM = 5; // workshop rule: at least 5 plots per stratum
 
   const land = new Landscape(ROWS, COLS);
   const N = land.n;
@@ -42,8 +52,10 @@ export function create() {
     equation:
       'n = (z·CV / r)² / (1 + (n₀−1)/N) &nbsp;·&nbsp; E(n) = z·s/√n · √(1 − n/N) &nbsp;·&nbsp; N = A/a',
     callout:
-      'Precision is expensive: halving the margin of error quadruples the plots needed ' +
-      '(n ∝ 1/E²). Spatial design and stratification change how fast the known map is revealed.',
+      'Precision is expensive: halving the margin of error quadruples the plots (n ∝ 1/E²). ' +
+      'Stratification is the biggest design lever where strata are real; otherwise plot count ' +
+      'matters more than which design you pick. A prior — an IPCC default or your own data — ' +
+      'steadies the estimate while n is still small.',
     state: st,
 
     // ---- derived quantities ----
@@ -56,6 +68,35 @@ export function create() {
         return Math.ceil(proportionN({ z: mod.z(), p: st.p, E: st.r, N }).n);
       }
       return Math.ceil(cochranN({ z: mod.z(), cv: mod.cv(), r: st.r, N }).n);
+    },
+    // Oversample so that, after attrition (lost/failed cores, non-response),
+    // enough USABLE plots remain: collect ceil(required / usable-fraction).
+    paddedN() {
+      const usable = Math.max(0.01, st.usablePct / 100);
+      return Math.ceil(mod.requiredN() / usable);
+    },
+    // Required n if the margin of error were halved — the "precision is
+    // expensive" number (≈ 4× because n ∝ 1/E²).
+    halfMarginN() {
+      if (st.paramType === 'proportion') {
+        return Math.ceil(proportionN({ z: mod.z(), p: st.p, E: st.r / 2, N }).n);
+      }
+      return Math.ceil(cochranN({ z: mod.z(), cv: mod.cv(), r: st.r / 2, N }).n);
+    },
+    // Proportional stratified allocation of the required n across the map's
+    // strata: nₕ = ceil(max( (Nₕ/N)·n , MIN_PER_STRATUM )). Rounding up and the
+    // per-stratum floor mean the strata usually sum to slightly more than n —
+    // exactly the WWF-Canada calculator's behaviour (Sheet 2 / Step 5).
+    allocation() {
+      const total = mod.requiredN();
+      const Nh = land.strataSizes();
+      const rows = Nh.map((nh, h) => {
+        const share = nh / N;
+        const plots = Math.ceil(Math.max(share * total, MIN_PER_STRATUM));
+        return { h, share, plots };
+      });
+      const sum = rows.reduce((s, r) => s + r.plots, 0);
+      return { total, rows, sum };
     },
     priorEqN() { return PRIOR_MODES[st.priorMode].priorEqN; },
 
@@ -74,6 +115,7 @@ export function create() {
       mod._recon = null;
       mod._last = null;
       if (mod._conv) { mod._conv.data.datasets.forEach((d) => (d.data = [])); }
+      if (mod._cmp) mod._refreshCompare();
     },
 
     // ---- controls ----
@@ -206,6 +248,15 @@ export function create() {
         onInput: (v) => { st.plotAreaHa = v; soft(); },
       }).root);
 
+      container.appendChild(slider({
+        label: 'Expected usable samples', min: 40, max: 100, step: 5, value: st.usablePct,
+        unit: '%', format: (v) => v.toFixed(0),
+        onInput: (v) => { st.usablePct = v; soft(); },
+      }).root);
+      container.appendChild(el('p', { class: 'hint-text',
+        text: 'Pad for attrition: cores can be lost, short, or fail QC. "Collect" ' +
+              'below = required ÷ usable %.' }));
+
       // Raster view toggle.
       container.appendChild(segmented({
         label: 'Map view', value: st.viewMode,
@@ -224,14 +275,43 @@ export function create() {
     mountReadouts(container) {
       mod._cards = {
         reqN: metricCard('Required n', 'Cochran, for target'),
+        padN: metricCard('Collect (padded)', 'after attrition'),
+        halfN: metricCard('Halve the margin', 'n for E/2 (≈4×)'),
         curN: metricCard('Collected n', '% of area'),
         est: metricCard('Estimate x̄', 'kg C m⁻²'),
         moe: metricCard('Margin of error', '± / %'),
         err: metricCard('Actual error', '|x̄ − true|'),
         post: metricCard('Posterior mean', 'prior→data'),
         weight: metricCard('Data weight w', 'n/(n+m) · prior 1−w'),
+        bayes: metricCard('Prior helps by', 'sample err − post err'),
       };
       Object.values(mod._cards).forEach((c) => container.appendChild(c.root));
+
+      // Stratified allocation table (shown only for the stratified design).
+      mod._alloc = el('div', { class: 'alloc-panel' });
+      container.appendChild(mod._alloc);
+    },
+
+    _refreshAlloc() {
+      const box = mod._alloc;
+      if (!box) return;
+      if (st.design !== 'stratified' || land.nStrata < 2 || st.paramType !== 'mean') {
+        box.innerHTML = '';
+        box.style.display = 'none';
+        return;
+      }
+      box.style.display = '';
+      const a = mod.allocation();
+      const rowsHtml = a.rows.map((r) =>
+        `<tr><td>Stratum ${r.h + 1}</td><td>${(r.share * 100).toFixed(0)}%</td>` +
+        `<td>${r.plots}</td></tr>`).join('');
+      box.innerHTML =
+        `<div class="alloc-title">Stratified allocation (min ${MIN_PER_STRATUM}/stratum)</div>` +
+        `<table class="alloc-table"><thead><tr><th>Stratum</th><th>Area</th>` +
+        `<th>Plots</th></tr></thead><tbody>${rowsHtml}` +
+        `<tr class="alloc-sum"><td>Total</td><td>—</td><td>${a.sum}</td></tr></tbody></table>` +
+        `<div class="alloc-note">Proportional to area, rounded up, ≥ ${MIN_PER_STRATUM} each — ` +
+        `so the total (${a.sum}) sits at or above the pooled n (${a.total}).</div>`;
     },
 
     // ---- charts ----
@@ -245,8 +325,10 @@ export function create() {
         label: 'x-axis', value: st.heroMode,
         options: [
           { value: 'moe', label: 'Margin of error vs n' },
-          { value: 'reqN_area', label: 'Required n vs area' },
-          { value: 'reqN_cv', label: 'Required n vs CV' },
+          { value: 'reqN_moe', label: 'n vs margin' },
+          { value: 'reqN_cv', label: 'n vs CV' },
+          { value: 'reqN_conf', label: 'n vs confidence' },
+          { value: 'reqN_area', label: 'n vs area' },
         ],
         onChange: (v) => { st.heroMode = v; mod._refreshHero(); },
       }));
@@ -316,8 +398,63 @@ export function create() {
         },
       });
 
+      // Design-comparison chart: actual error vs n for all four designs on THIS
+      // landscape, so you can see which design wins for the current ecosystem.
+      container.appendChild(el('p', { class: 'chart-caption',
+        text: 'Which design wins here? Mean error vs n on this ecosystem (known truth).' }));
+      const legCmp = document.createElement('div');
+      legCmp.className = 'chart-legend';
+      buildLegend(legCmp, [
+        { label: 'Random', color: CMP.random },
+        { label: 'Grid', color: CMP.systematicGrid },
+        { label: 'Transect', color: CMP.systematicLinear },
+        { label: 'Stratified', color: CMP.stratified },
+      ]);
+      const wrapCmp = document.createElement('div');
+      wrapCmp.className = 'chart-wrap';
+      const cCmp = document.createElement('canvas');
+      wrapCmp.appendChild(cCmp);
+      container.appendChild(legCmp);
+      container.appendChild(wrapCmp);
+      mod._cmp = createChart(cCmp, {
+        type: 'line',
+        data: {
+          datasets: [
+            { label: 'Random', data: [], borderColor: CMP.random, borderWidth: 2, pointRadius: 0 },
+            { label: 'Grid', data: [], borderColor: CMP.systematicGrid, borderWidth: 2, pointRadius: 0 },
+            { label: 'Transect', data: [], borderColor: CMP.systematicLinear, borderWidth: 2, pointRadius: 0 },
+            { label: 'Stratified', data: [], borderColor: CMP.stratified, borderWidth: 2.5, pointRadius: 0 },
+          ],
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false, animation: false,
+          interaction: { mode: 'index', intersect: false },
+          plugins: { legend: { display: false }, referenceLines: { lines: [] } },
+          scales: {
+            x: { type: 'linear', title: { display: true, text: 'sample size n' } },
+            y: { type: 'linear', min: 0, title: { display: true, text: 'mean error |x̄ − true| (kg C m⁻²)' } },
+          },
+        },
+      });
+
       mod._refreshHero();
       mod._refreshConv();
+      mod._refreshCompare();
+    },
+
+    _refreshCompare() {
+      if (!mod._cmp) return;
+      const ds = mod._cmp.data.datasets;
+      if (st.paramType !== 'mean') {         // comparison is about the mean estimate
+        ds.forEach((d) => (d.data = []));
+        mod._cmp.update('none');
+        return;
+      }
+      const { nGrid, curves } = designComparison(land, mod.z(),
+        { maxN: Math.min(200, N), points: 24, seeds: 8 });
+      const keys = ['random', 'systematicGrid', 'systematicLinear', 'stratified'];
+      keys.forEach((k, i) => { ds[i].data = nGrid.map((n, gi) => ({ x: n, y: curves[k][gi] })); });
+      mod._cmp.update('none');
     },
 
     _setFooter() {
@@ -364,6 +501,33 @@ export function create() {
         ch.data.datasets[0].borderColor = COLORS.requiredN;
         refLines = [{ scaleID: 'x', axis: 'x', value: cv * 100, color: COLORS.muted, label: `CV=${(cv * 100).toFixed(0)}%` }];
         legend = [{ label: 'Required n (Cochran)', color: COLORS.requiredN }, { label: 'Current CV', color: COLORS.muted, dash: true }];
+      } else if (st.heroMode === 'reqN_moe') {
+        const isProp = st.paramType === 'proportion';
+        for (let rr = 0.02; rr <= 0.4001; rr += 0.01) {
+          const y = isProp
+            ? Math.ceil(proportionN({ z, p: st.p, E: rr, N }).n)
+            : Math.ceil(cochranN({ z, cv, r: rr, N }).n);
+          data.push({ x: rr * 100, y });
+        }
+        ch.options.scales.y.max = undefined;
+        xTitle = 'target margin of error (% of mean)'; yTitle = 'required n';
+        ch.data.datasets[0].borderColor = COLORS.requiredN;
+        refLines = [{ scaleID: 'x', axis: 'x', value: st.r * 100, color: COLORS.target, label: `target ${(st.r * 100).toFixed(0)}%` }];
+        legend = [{ label: 'Required n', color: COLORS.requiredN }, { label: 'Current target', color: COLORS.target, dash: true }];
+      } else if (st.heroMode === 'reqN_conf') {
+        const isProp = st.paramType === 'proportion';
+        for (let cf = 0.50; cf <= 0.9991; cf += 0.01) {
+          const zz = zFor(cf);
+          const y = isProp
+            ? Math.ceil(proportionN({ z: zz, p: st.p, E: st.r, N }).n)
+            : Math.ceil(cochranN({ z: zz, cv, r: st.r, N }).n);
+          data.push({ x: cf * 100, y });
+        }
+        ch.options.scales.y.max = undefined;
+        xTitle = 'confidence level (%)'; yTitle = 'required n';
+        ch.data.datasets[0].borderColor = COLORS.requiredN;
+        refLines = [{ scaleID: 'x', axis: 'x', value: st.confidence * 100, color: COLORS.target, label: `${(st.confidence * 100).toFixed(0)}%` }];
+        legend = [{ label: 'Required n', color: COLORS.requiredN }, { label: 'Current level', color: COLORS.target, dash: true }];
       } else { // reqN_area
         const a = st.plotAreaHa;
         for (let A = a * 4; A <= a * N * 4; A *= 1.15) {
@@ -397,6 +561,8 @@ export function create() {
 
     _refreshReadouts() {
       mod._cards.reqN.set(String(mod.requiredN()));
+      mod._cards.padN.set(`${mod.paddedN()} · @${st.usablePct}%`);
+      mod._cards.halfN.set(`${mod.halfMarginN()} · ${(mod.halfMarginN() / Math.max(1, mod.requiredN())).toFixed(1)}×`);
       const pct = ((mod.n / N) * 100).toFixed(1);
       mod._cards.curN.set(`${mod.n} · ${pct}%`);
       const w = mod.dataWeight();
@@ -406,11 +572,18 @@ export function create() {
         mod._cards.est.set(e.mean.toFixed(2));
         mod._cards.moe.set(isFinite(e.moeAbs) ? `±${e.moeAbs.toFixed(2)} · ${(e.moeRel * 100).toFixed(1)}%` : '—');
         mod._cards.err.set(e.actualError.toFixed(2));
-        mod._cards.post.set(mod._posterior().mean.toFixed(2));
+        const postMean = mod._posterior().mean;
+        mod._cards.post.set(postMean.toFixed(2));
+        // How much the prior improves the estimate right now (sample vs posterior
+        // distance to the truth): positive early, → 0 as data takes over.
+        const gain = e.actualError - Math.abs(postMean - land.trueMean);
+        mod._cards.bayes.set(`${gain >= 0 ? '+' : ''}${gain.toFixed(2)}`);
       } else {
         ['est', 'moe', 'err'].forEach((k) => mod._cards[k].set('—'));
         mod._cards.post.set(st.mean.toFixed(2)); // prior only
+        mod._cards.bayes.set('—');
       }
+      mod._refreshAlloc();
     },
 
     // Conjugate normal-normal posterior with known σ; prior = priorEqN pseudo-
